@@ -1,4 +1,12 @@
-# =========================================================
+## sitdown2.py 파일의 시작 부분
+
+import streamlit as st # <-- Streamlit을 st로 import 하는 것이 필수입니다!
+import pandas as pd
+import random
+import time
+import math
+# ... (이후 optimized_seat_arrangement 함수 정의 등) 
+=========================================================
 # 3. STREAMLIT APP LAYOUT (수정 필수 부분)
 # =========================================================
 # ...
