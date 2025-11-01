@@ -14,13 +14,13 @@ def optimized_seat_arrangement(df_students, num_groups=5, num_cols=4):
     students = df_students.to_dict('records')
     total_students = len(students)
     
-    # 총 5개 모둠으로 고정 (21명 -> 4명*4모둠 + 5명*1모둠으로 자동 분배)
+    # 총 5개 모둠으로 고정하여 분산
     groups = [[] for _ in range(num_groups)]
     
     # 소음 점수 높은 순으로 정렬하여 분산 배치 우선순위 결정 (키: '소음_점수')
     students.sort(key=lambda x: x['소음_점수'], reverse=True) 
 
-    # 1. 소음 분산 배치 (높은 점수 학생을 5개 모둠에 분산 배치)
+    # 1. 소음 분산 배치
     for i, student in enumerate(students):
         group_index = i % num_groups 
         groups[group_index].append(student)
@@ -53,50 +53,78 @@ def get_class_roster():
     names_f = ['김기쁨', '디네브유나', '박주은', '배하늬', '신소원', '신진영', '이세은', '정지원', '정하린', '배서영', '강유하']
     names_m = ['김도윤', '남태오', '박서진', '오진석', '윤지호', '이동호', '이해원', '전민준', '최서우', '이서호']
     
+    # 세션 상태 초기화를 위해 DataFrame이 아닌, 순수 리스트를 반환
     data = []
     
-    # 초기 소음 점수를 5점으로 고정하여 무작위 변경 문제 원천 차단
     for name in names_f:
         data.append({'이름': name, '성별': '여', '소음_점수': 5})
     
     for name in names_m:
         data.append({'이름': name, '성별': '남', '소음_점수': 5})
         
-    return pd.DataFrame(data)
+    return data
 
 # =========================================================
 # 3. STREAMLIT APP LAYOUT & MAIN EXECUTION
 # =========================================================
 
 st.title("👨‍🏫 평화로운 교실을 위한 랜덤 자리 배치기")
-st.markdown("학생의 **이름**과 **소음 점수**를 수정한 후, 자리 배치를 시작하세요.")
+st.markdown("학생의 **소음 점수**를 **슬라이더**로 조절한 후, 자리 배치를 시작하세요.")
 
-# 소음 점수 자동 변경 방지: 세션 상태에 데이터가 없으면 딱 한 번 초기 데이터 로드
-if 'df_students' not in st.session_state:
-    st.session_state.df_students = get_class_roster()
+initial_roster = get_class_roster()
 
-st.subheader("📝 학생 명단 및 특성 편집")
-st.caption("소음 점수: 1점(조용함) ~ 10점(시끄러움/주의 필요). 값을 수정하면 유지됩니다.")
+# 소음 점수 자동 변경 방지: 세션 상태에 학생별 소음 점수를 직접 저장 및 확인
+if 'roster_data' not in st.session_state:
+    st.session_state.roster_data = initial_roster
 
-# st.data_editor를 사용하여 데이터 편집 가능하게 설정
-edited_df = st.data_editor(
-    st.session_state.df_students, 
-    column_config={
-        "이름": st.column_config.TextColumn("이름", help="학생의 이름을 수정할 수 있습니다.", required=True),
-        "성별": st.column_config.TextColumn("성별", help="성별은 '남' 또는 '여'로만 입력해야 합니다.", disabled=True),
-        "소음_점수": st.column_config.NumberColumn("소음_점수", help="1~10 사이의 소음/특성 점수를 입력하세요.", min_value=1, max_value=10, step=1, required=True)
-    },
-    hide_index=True,
-    num_rows="dynamic",
-    key='student_data_editor' 
-)
+# --- 학생 명단 및 소음 점수 입력 (st.slider 사용) ---
+st.subheader("🔊 학생별 소음/특성 점수 조절 (1점~10점)")
+st.caption("1점: 조용함 / 10점: 시끄러움/주의 필요. 슬라이더로 조절하면 값이 유지됩니다.")
 
-# 편집된 DataFrame을 세션 상태에 즉시 덮어씌워 수정 사항 유지 (핵심)
-st.session_state.df_students = edited_df
+# 학생 수에 따라 칼럼 생성 (3열)
+cols = st.columns(3)
+col_index = 0
+student_index = 0
+
+# UI에서 조절된 값을 반영할 최종 DataFrame 준비
+final_roster_data = []
+
+for student in st.session_state.roster_data:
+    name = student['이름']
+    gender = student['성별']
+    
+    # Session State Key: 각 학생의 소음 점수를 고유 키로 관리
+    score_key = f"noise_{name}"
+    
+    with cols[col_index]:
+        # 세션 상태에 소음 점수가 없으면 초기값(5) 설정
+        if score_key not in st.session_state:
+            st.session_state[score_key] = student['소음_점수']
+            
+        # st.slider를 사용하여 화살표로 점수 조절 가능
+        st.slider(
+            label=f"**{name}** ({gender})",
+            min_value=1,
+            max_value=10,
+            step=1,
+            key=score_key, # 슬라이더의 상태를 세션 상태 변수와 직접 연결
+            label_visibility="visible"
+        )
+        
+        # UI에서 조절된 값을 읽어와 최종 데이터에 반영
+        final_roster_data.append({
+            '이름': name, 
+            '성별': gender, 
+            '소음_점수': st.session_state[score_key]
+        })
+
+    col_index = (col_index + 1) % 3
+    student_index += 1
+
+df_to_use = pd.DataFrame(final_roster_data)
 
 # --- 자리 배치 시작 ---
 if st.button("✨ 자리 배치 시작! (랜덤 연출 효과 포함)"):
-    df_to_use = st.session_state.df_students 
     
     # 5개 모둠으로 자리 배치 실행
     final_arrangement, final_groups = optimized_seat_arrangement(df_to_use, num_groups=5)
@@ -108,12 +136,9 @@ if st.button("✨ 자리 배치 시작! (랜덤 연출 효과 포함)"):
     
     all_names = list(df_to_use['이름'])
     
-    # 룰렛처럼 섞이는 모습 연출 (약 1초)
     for _ in range(10):
         random.shuffle(all_names)
-        temp_arrangement_names = all_names[:24] # 24개 좌석 기준으로 자름
-        
-        # 임시 배치 배열 생성 (6행 4열)
+        temp_arrangement_names = all_names[:24] 
         temp_arrangement = [[temp_arrangement_names.pop(0) if temp_arrangement_names else '' for _ in range(4)] for _ in range(6)]
         arrangement_placeholder.table(temp_arrangement)
         time.sleep(0.1) 
